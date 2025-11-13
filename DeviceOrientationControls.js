@@ -1,7 +1,4 @@
-import {
-	EventDispatcher,
-	Vector3
-} from 'three';
+import * as THREE from 'three';
 
 /**
  * @author richt / http://richt.me
