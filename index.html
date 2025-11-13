@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>360° Panorama Viewer (Direct CDN Link Fix)</title>
+    
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js"
+      }
+    }
+    </script>
+    
+    <style>
+        /* Modern Dark UI CSS */
+        body {
+            margin: 0;
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        #viewer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #ui-controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            z-index: 10;
+        }
+
+        #url-input-group {
+            display: flex;
+            gap: 5px;
+        }
+
+        #url-input, button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+
+        #url-input {
+            flex-grow: 1;
+            background: #333;
+            color: #f0f0f0;
+            border: 1px solid #444;
+        }
+
+        button {
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        #file-input-label {
+            display: block;
+            text-align: center;
+            background: #28a745;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #file-input-label:hover {
+            background: #1e7e34;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        /* Progress Overlay */
+        #progress-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none; 
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            color: white;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        #progress-bar-container {
+            width: 80%;
+            max-width: 400px;
+            background: #333;
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow: hidden;
+            height: 20px;
+        }
+
+        #progress-bar {
+            height: 100%;
+            width: 0%;
+            background: #007bff;
+            transition: width 0.1s;
+        }
+
+        /* Fullscreen & Fit View Group */
+        #action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+        #action-buttons button {
+            flex-grow: 1;
+            background: #6c757d;
+        }
+        #action-buttons button:hover {
+            background: #5a6268;
+        }
+        
+        #toggle-motion-button {
+            display: block; 
+            background: #ffc107; 
+            color: black;
+        }
+        #toggle-motion-button.active {
+            background: #dc3545; 
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="viewer"></div>
+
+    <div id="ui-controls">
+        <label id="file-input-label" for="file-input">📂 Load Local Panorama (Any)</label>
+        <input type="file" id="file-input" accept="image/jpeg,image/png,image/x-exr,image/vnd.radiance,image/hdr" />
+
+        <div id="url-input-group">
+            <input type="text" id="url-input" placeholder="Paste image URL (JPG, PNG, HDR, EXR)" />
+            <button id="load-url-button">🌐 Load URL</button>
+        </div>
+
+        <div id="action-buttons">
+            <button id="fit-view-button">🎯 Fit View</button>
+            <button id="fullscreen-button">📺 Fullscreen</button>
+        </div>
+        
+        <button id="toggle-motion-button">📱 Enable Device Motion</button> 
+    </div>
+
+    <div id="progress-overlay">
+        <div id="progress-text">Loading... 0%</div>
+        <div id="progress-bar-container">
+            <div id="progress-bar"></div>
+        </div>
+    </div>
+
+<script type="module">
+    // FIX 2: All addon modules are now using hardcoded direct CDN links.
+    import * as THREE from 'three';
+    import { DeviceOrientationControls } from 'https://unpkg.com/three@0.160.1/examples/jsm/controls/DeviceOrientationControls.js'; 
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.1/examples/jsm/controls/OrbitControls.js'; 
+    import { RGBELoader } from 'https://unpkg.com/three@0.160.1/examples/jsm/loaders/RGBELoader.js';
+    import { EXRLoader } from 'https://unpkg.com/three@0.160.1/examples/jsm/loaders/EXRLoader.js';
+
+    // --- Core Variables ---
+    let camera, scene, renderer, orbitControls, deviceControls, panoramaMesh;
+    let textureLoader, rgbeLoader, exrLoader; 
+    let isDeviceMotionActive = false; 
+
+    // Find the elements needed globally
+    const viewerContainer = document.getElementById('viewer');
+    const progressOverlay = document.getElementById('progress-overlay');
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+
+    // Caching loader instances and setting CORS property
+    textureLoader = new THREE.TextureLoader();
+    textureLoader.crossOrigin = ''; 
+    
+    // Initialize loaders 
+    rgbeLoader = new RGBELoader(); 
+    rgbeLoader.setCrossOrigin(''); 
+    rgbeLoader.setDataType( THREE.FloatType ); 
+    
+    exrLoader = new EXRLoader();
+    exrLoader.setCrossOrigin(''); 
+    exrLoader.setDataType( THREE.HalfFloatType );
+
+    // --- Core Functions ---
+
+    function getFileType(filename) {
+        const ext = filename.split('.').pop().toLowerCase();
+        if (['jpg', 'jpeg'].includes(ext)) return 'jpg';
+        if (ext === 'png') return 'png';
+        if (['hdr', 'rgbe'].includes(ext)) return 'hdr';
+        if (ext === 'exr') return 'exr';
+        return 'jpg'; 
+    }
+
+    function showProgress(text) {
+        progressText.textContent = text;
+        progressBar.style.width = '0%';
+        progressOverlay.style.display = 'flex';
+    }
+
+    function updateProgress(percentage) {
+        const pct = Math.round(percentage);
+        progressText.textContent = `Loading... ${pct}%`;
+        progressBar.style.width = `${pct}%`;
+    }
+
+    function hideProgress() {
+        progressOverlay.style.display = 'none';
+    }
+
+    function createPanoramaMesh(texture, isHDR) {
+        // 1. Cleanup old mesh/environment
+        if (panoramaMesh) {
+            scene.remove(panoramaMesh);
+            panoramaMesh.geometry.dispose();
+            panoramaMesh.material.dispose();
+            panoramaMesh.material.map && panoramaMesh.material.map.dispose();
+        }
+        if (scene.environment) {
+            scene.environment.dispose();
+            scene.environment = null;
+        }
+
+        // 2. Texture setup
+        texture.mapping = THREE.EquirectangularReflectionMapping;
+        if (!isHDR) {
+            texture.colorSpace = THREE.SRGBColorSpace;
+        }
+        
+        // Create the inverted sphere mesh for 360 viewing (enables orbiting)
+        const geometry = new THREE.SphereGeometry(500, 60, 40);
+        geometry.scale(-1, 1, 1); 
+
+        const material = new THREE.MeshBasicMaterial({ map: texture, side: THREE.FrontSide });
+
+        panoramaMesh = new THREE.Mesh(geometry, material);
+        scene.add(panoramaMesh);
+        
+        // 3. Environment setup
+        scene.background = null; 
+        if (isHDR) {
+            scene.environment = texture; 
+            renderer.toneMappingExposure = 0.8; 
+        } else {
+            renderer.toneMappingExposure = 1.0; 
+        }
+
+        console.log('✅ Panorama texture successfully loaded and added to the scene for viewing.');
+        hideProgress();
+    }
+
+    function loadUrlPanorama(url, type) {
+        showProgress('Loading image data from URL...');
+        
+        let loader = textureLoader;
+        let isHDR = false;
+
+        switch (type) {
+            case 'hdr':
+                loader = rgbeLoader;
+                isHDR = true;
+                break;
+            case 'exr':
+                loader = exrLoader;
+                isHDR = true;
+                break;
+            case 'jpg':
+            case 'png':
+            default:
+                loader = textureLoader;
+                break;
+        }
+        
+        loader.load(
+            url,
+            (texture) => {
+                createPanoramaMesh(texture, isHDR);
+            },
+            (xhr) => { 
+                if (xhr.lengthComputable) {
+                    updateProgress((xhr.loaded / xhr.total) * 100);
+                } else {
+                    const loadedMb = (xhr.loaded / (1024 * 1024)).toFixed(2);
+                    progressText.textContent = `Loading... ${loadedMb} MB downloaded (Size unknown)`;
+                }
+            },
+            (error) => { 
+                console.error('❌ URL LOADING FAILED:', error);
+                alert(`❌ FAILED TO LOAD URL! Error: ${error.message || 'Unknown network error.'}\n\nREASON: This is almost certainly a CORS (Cross-Origin Resource Sharing) security block. Your only solution is to DOWNLOAD the image and use the 'Load Local Panorama' button.`);
+                hideProgress();
+            }
+        );
+    }
+
+    function loadLocalPanorama(file, type) {
+        showProgress(`Processing local ${type.toUpperCase()} file...`);
+        
+        const isHDR = (type === 'hdr' || type === 'exr');
+
+        if (isHDR) {
+            // For HDR/EXR (requires ArrayBuffer for parsing)
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                try {
+                    let loader = type === 'hdr' ? rgbeLoader : exrLoader;
+                    if (!loader) throw new Error(`${type.toUpperCase()} Loader not initialized.`);
+                    
+                    const texture = loader.parse(e.target.result);
+                    createPanoramaMesh(texture, true);
+                } catch (parseError) {
+                    console.error('❌ HDR/EXR PARSING FAILED:', parseError);
+                    alert(`❌ FAILED TO PARSE LOCAL FILE! Error: ${parseError.message}.\n\nEnsure the file is a valid ${type.toUpperCase()} panorama.`);
+                    hideProgress();
+                }
+            };
+            
+            reader.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    updateProgress((e.loaded / e.total) * 100); 
+                } else {
+                    progressText.textContent = `Reading local file (size unknown)...`;
+                }
+            };
+
+            reader.onerror = (e) => {
+                console.error('❌ FILEREADER ERROR:', e);
+                alert('❌ FILE READING FAILED. Check console.');
+                hideProgress();
+            };
+
+            reader.readAsArrayBuffer(file);
+
+        } else {
+            // For JPG/PNG (LDR files - uses URL.createObjectURL)
+            try {
+                const objectURL = URL.createObjectURL(file);
+                
+                textureLoader.load(objectURL, 
+                    (texture) => {
+                        createPanoramaMesh(texture, false);
+                        URL.revokeObjectURL(objectURL); 
+                    },
+                    (xhr) => { 
+                        if (xhr.lengthComputable) {
+                            updateProgress((xhr.loaded / xhr.total) * 100);
+                        } else {
+                            progressText.textContent = `Loading... ${Math.round(xhr.loaded / 1024)} KB downloaded`;
+                        }
+                    },
+                    (error) => {
+                        console.error('❌ LOCAL JPG/PNG TEXTURE LOAD FAILED:', error);
+                        alert(`❌ FAILED TO LOAD LOCAL FILE! Error: ${error.message || 'Unknown texture error.'}\n\nEnsure the file is a valid JPG/PNG image.`);
+                        hideProgress();
+                        URL.revokeObjectURL(objectURL);
+                    }
+                );
+            } catch (error) {
+                console.error('❌ LOCAL FILE INITIALIZATION FAILED:', error);
+                alert(`❌ FAILED TO INITIALIZE LOCAL LOAD! Error: ${error.message}.`);
+                hideProgress();
+            }
+        }
+    }
+
+
+    function init() {
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0.001, 0, 0); 
+        camera.rotation.set(0, 0, 0);
+
+        scene = new THREE.Scene();
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.outputColorSpace = THREE.SRGBColorSpace; 
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; 
+        renderer.toneMappingExposure = 1.0;
+        viewerContainer.appendChild(renderer.domElement);
+
+        // OrbitControls is loaded and functional
+        orbitControls = new OrbitControls(camera, renderer.domElement); 
+        orbitControls.enableDamping = true;
+        orbitControls.dampingFactor = 0.05;
+        orbitControls.rotateSpeed = -0.25;
+        orbitControls.minDistance = 0.1; 
+        orbitControls.maxDistance = 10;
+        orbitControls.enablePan = false; 
+        orbitControls.minPolarAngle = Math.PI * 0.2; 
+        orbitControls.maxPolarAngle = Math.PI * 0.8;
+        orbitControls.enabled = true; 
+
+
+        // Device Orientation Controls is loaded via direct CDN link
+        deviceControls = new DeviceOrientationControls(camera); 
+        deviceControls.enabled = false; 
+
+
+        window.addEventListener('resize', onWindowResize, false);
+        animate();
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        if (isDeviceMotionActive && deviceControls) {
+            deviceControls.update();
+        } else if (orbitControls) {
+            orbitControls.update(); 
+        }
+        
+        renderer.render(scene, camera);
+    }
+    
+    // --- Event Handlers ---
+    document.getElementById('file-input').addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+        loadLocalPanorama(file, getFileType(file.name));
+    });
+
+    document.getElementById('load-url-button').addEventListener('click', () => {
+        let url = document.getElementById('url-input').value.trim();
+        if (!url) { alert('Please enter a URL.'); return; }
+        try {
+            const urlObject = new URL(url);
+            url = urlObject.href; 
+        } catch (e) {
+            url = encodeURI(url);
+        }
+        loadUrlPanorama(url, getFileType(url));
+    });
+
+    document.getElementById('fullscreen-button').addEventListener('click', () => {
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else {
+            document.documentElement.requestFullscreen();
+        }
+    });
+
+    document.getElementById('fit-view-button').addEventListener('click', () => {
+        if (!isDeviceMotionActive && orbitControls) {
+            orbitControls.reset();
+            camera.position.set(0.001, 0, 0);
+            camera.fov = 75; 
+            camera.updateProjectionMatrix();
+        } else if (deviceControls) {
+            camera.rotation.set(0, 0, 0); 
+            deviceControls.connect(); 
+        }
+    });
+    
+    document.getElementById('toggle-motion-button').addEventListener('click', () => {
+        const button = document.getElementById('toggle-motion-button');
+        isDeviceMotionActive = !isDeviceMotionActive;
+        
+        function enableDeviceMotion() {
+            if (orbitControls) orbitControls.enabled = false;
+            if (deviceControls) {
+                deviceControls.enabled = true;
+                deviceControls.connect(); 
+            }
+            button.classList.add('active');
+            button.textContent = '🛑 Disable Device Motion';
+        }
+        
+        function disableDeviceMotion() {
+            if (deviceControls) {
+                deviceControls.enabled = false;
+                deviceControls.disconnect(); 
+            }
+            if (orbitControls) orbitControls.enabled = true;
+            button.classList.remove('active');
+            button.textContent = '📱 Enable Device Motion';
+        }
+
+        if (isDeviceMotionActive) {
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(permissionState => {
+                    if (permissionState === 'granted') { enableDeviceMotion(); } else { isDeviceMotionActive = false; disableDeviceMotion(); alert('Device motion permission denied. This feature usually requires HTTPS on mobile devices.'); }
+                });
+            } else { enableDeviceMotion(); }
+        } else { disableDeviceMotion(); }
+    });
+
+
+    // Application Start
+    init();
+
+</script>
+</body>
+</html>
