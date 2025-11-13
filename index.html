@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>360° Panorama Viewer (Final Self-Contained Fix)</title>
+    <title>360° Panorama Viewer (Final GitHub Pages Fix)</title>
     
     <script type="importmap">
     {
@@ -184,7 +184,7 @@
     </div>
 
 <script type="module">
-    // FIX: DeviceOrientationControls is now imported from the local file you uploaded to GitHub!
+    // FIX 2: DeviceOrientationControls is now loaded locally using './'
     import * as THREE from 'three';
     import { DeviceOrientationControls } from './DeviceOrientationControls.js'; 
     import { OrbitControls } from 'https://unpkg.com/three@0.160.1/examples/jsm/controls/OrbitControls.js'; 
@@ -487,6 +487,7 @@
             camera.fov = 75; 
             camera.updateProjectionMatrix();
         } else if (deviceControls) {
+            // Reset rotation when switching back from motion control
             camera.rotation.set(0, 0, 0); 
             deviceControls.connect(); 
         }
@@ -517,9 +518,10 @@
         }
 
         if (isDeviceMotionActive) {
+            // This is the required iOS/Safari permission request
             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(permissionState => {
-                    if (permissionState === 'granted') { enableDeviceMotion(); } else { isDeviceMotionActive = false; disableDeviceMotion(); alert('Device motion permission denied. This feature requires a user action and HTTPS on mobile devices.'); }
+                    if (permissionState === 'granted') { enableDeviceMotion(); } else { isDeviceMotionActive = false; disableDeviceMotion(); alert('Device motion permission denied.'); }
                 });
             } else { enableDeviceMotion(); }
         } else { disableDeviceMotion(); }
