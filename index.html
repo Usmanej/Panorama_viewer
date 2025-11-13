@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>360° Panorama Viewer (Direct CDN Link Fix)</title>
+    <title>360° Panorama Viewer (Final Self-Contained Fix)</title>
     
     <script type="importmap">
     {
@@ -184,9 +184,9 @@
     </div>
 
 <script type="module">
-    // FIX 2: All addon modules are now using hardcoded direct CDN links.
+    // FIX: DeviceOrientationControls is now imported from the local file you uploaded to GitHub!
     import * as THREE from 'three';
-    import { DeviceOrientationControls } from 'https://unpkg.com/three@0.160.1/examples/jsm/controls/DeviceOrientationControls.js'; 
+    import { DeviceOrientationControls } from './DeviceOrientationControls.js'; 
     import { OrbitControls } from 'https://unpkg.com/three@0.160.1/examples/jsm/controls/OrbitControls.js'; 
     import { RGBELoader } from 'https://unpkg.com/three@0.160.1/examples/jsm/loaders/RGBELoader.js';
     import { EXRLoader } from 'https://unpkg.com/three@0.160.1/examples/jsm/loaders/EXRLoader.js';
@@ -426,7 +426,7 @@
         orbitControls.enabled = true; 
 
 
-        // Device Orientation Controls is loaded via direct CDN link
+        // Device Orientation Controls is loaded locally from the file you uploaded
         deviceControls = new DeviceOrientationControls(camera); 
         deviceControls.enabled = false; 
 
@@ -519,7 +519,7 @@
         if (isDeviceMotionActive) {
             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission().then(permissionState => {
-                    if (permissionState === 'granted') { enableDeviceMotion(); } else { isDeviceMotionActive = false; disableDeviceMotion(); alert('Device motion permission denied. This feature usually requires HTTPS on mobile devices.'); }
+                    if (permissionState === 'granted') { enableDeviceMotion(); } else { isDeviceMotionActive = false; disableDeviceMotion(); alert('Device motion permission denied. This feature requires a user action and HTTPS on mobile devices.'); }
                 });
             } else { enableDeviceMotion(); }
         } else { disableDeviceMotion(); }
